@@ -7,7 +7,7 @@ on:
   push:
     branches: [main, master]
   schedule:
-    - cron: "*/10 * * * *" # каждые 10 минут
+    - cron: "*/7 * * * *" # каждые 7 минут
   workflow_dispatch:
 
 permissions:
