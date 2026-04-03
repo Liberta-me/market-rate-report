@@ -500,7 +500,8 @@ def pick_futures_sample_sec() -> str:
     return "SiM6"
 
 
-def get_three_trading_days(cfg: MarketConfig, report_end: date) -> Tuple[str, str, str]:
+def _trading_dates_up_to(cfg: MarketConfig, report_end: date) -> List[str]:
+    """Уникальные TRADEDATE из ISS history по одному инструменту, по возрастанию."""
     if cfg.key == "futures":
         sample = pick_futures_sample_sec()
     elif cfg.key == "currency":
@@ -521,7 +522,28 @@ def get_three_trading_days(cfg: MarketConfig, report_end: date) -> Tuple[str, st
     dates = sorted({row[idx["TRADEDATE"]] for row in rows if row[idx["TRADEDATE"]] <= till_s})
     if len(dates) < 3:
         raise RuntimeError("Недостаточно торговых дней.")
+    return dates
+
+
+def get_three_trading_days(cfg: MarketConfig, report_end: date) -> Tuple[str, str, str]:
+    dates = _trading_dates_up_to(cfg, report_end)
     return dates[-1], dates[-2], dates[-3]
+
+
+def live_comparison_close_dates(cfg: MarketConfig, today: date) -> Tuple[str, str]:
+    """
+    Даты официальных закрытий для Δ1д и Δ2д в блоке «Текущие данные»:
+    предыдущий и позапрошлый торговые дни относительно календарной даты отчёта.
+
+    Если в ISS уже есть строка TRADEDATE на «сегодня», последняя в списке — текущая сессия;
+    тогда закрытие «вчера» — dates[-2], «позавчера (в торгах)» — dates[-3].
+    Если сегодняшнего дня в истории ещё нет, последняя дата — вчера → «вчера» dates[-1], позавчера dates[-2].
+    """
+    dates = _trading_dates_up_to(cfg, today)
+    today_s = today.strftime("%Y-%m-%d")
+    if dates[-1] == today_s:
+        return dates[-2], dates[-3]
+    return dates[-1], dates[-2]
 
 
 def risk_for_security(
@@ -886,12 +908,13 @@ def generate_report() -> Path:
 
     for key, cfg in MARKETS.items():
         d0, d1, d2 = get_three_trading_days(cfg, today)
-        h1 = load_history_cached(cfg, d1)
-        h2 = load_history_cached(cfg, d2)
+        ref1, ref2 = live_comparison_close_dates(cfg, today)
+        h1 = load_history_cached(cfg, ref1)
+        h2 = load_history_cached(cfg, ref2)
         md_map, meta = live_market_block(cfg)
         current_data[key] = {
             "title": cfg.title,
-            "basis": f"Сравнение с ценами закрытия за {d1} и {d2}.",
+            "basis": f"Сравнение с ценами закрытия за {ref1} и {ref2}.",
             "rows": build_table_rows(
                 cfg,
                 "live",
