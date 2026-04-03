@@ -18,6 +18,9 @@ import json
 import math
 import os
 import re
+import socket
+import time
+import urllib.error
 import urllib.parse
 import urllib.request
 import webbrowser
@@ -180,10 +183,34 @@ MARKETS: Dict[str, MarketConfig] = {
 }
 
 
-def fetch_json(url: str, timeout: float = 90.0) -> Any:
-    req = urllib.request.Request(url, headers={"User-Agent": "moex-risk-monitor/2.0"})
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return json.loads(resp.read().decode("utf-8"))
+def fetch_json(url: str, timeout: float = 120.0, retries: int = 4) -> Any:
+    """Запрос к ISS; при таймаутах и временной недоступности MOEX — повтор с паузой."""
+    last_err: Optional[BaseException] = None
+    for attempt in range(retries):
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "moex-risk-monitor/2.0"})
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            last_err = e
+            if e.code in (429, 502, 503, 504) and attempt < retries - 1:
+                time.sleep(min(10.0, 2.0**attempt))
+                continue
+            raise
+        except (TimeoutError, socket.timeout) as e:
+            last_err = e
+            if attempt < retries - 1:
+                time.sleep(min(10.0, 2.0**attempt))
+                continue
+            raise
+        except (urllib.error.URLError, ConnectionError, BrokenPipeError, OSError) as e:
+            last_err = e
+            if attempt < retries - 1:
+                time.sleep(min(10.0, 2.0**attempt))
+                continue
+            raise
+    assert last_err is not None
+    raise last_err
 
 
 def iss_table_rows(data: Any, name: str) -> Tuple[List[str], List[List[Any]]]:
