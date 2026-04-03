@@ -7,7 +7,7 @@ on:
   push:
     branches: [main, master]
   schedule:
-    - cron: "*/5 * * * *" # каждые 7 минут
+    - cron: "*/5 * * * *" # каждые 5 минут
   workflow_dispatch:
 
 permissions:
@@ -27,6 +27,15 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
+      # Кэш выгрузок ISS (история по датам) — без него каждый прогон тянет гигабайты запросов заново.
+      - name: Cache MOEX history
+        uses: actions/cache@v4
+        with:
+          path: moex_cache
+          key: moex-cache-${{ runner.os }}-${{ hashFiles('moex_risk_monitor.py') }}
+          restore-keys: |
+            moex-cache-${{ runner.os }}-
 
       - name: Generate report
         run: python moex_risk_monitor.py
